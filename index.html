@@ -390,7 +390,7 @@ function drawTree(x, size) {
   }
 }
 
-function drawCastle(cx, cy, sc) {
+/* function drawCastle(cx, cy, sc) {
   ctx.fillStyle = '#8a7a9a';
   ctx.fillRect(cx, cy-62*sc, 42*sc, 62*sc);
   for (let i=0;i<4;i++) ctx.fillRect(cx+i*11*sc, cy-74*sc, 7*sc, 13*sc);
@@ -401,6 +401,7 @@ function drawCastle(cx, cy, sc) {
   // Window
   ctx.fillStyle = '#3a2a5a';
   ctx.fillRect(cx+16*sc, cy-45*sc, 10*sc, 14*sc);
+  */
 }
 
 function drawEnvironment() {
@@ -435,15 +436,16 @@ function drawEnvironment() {
   }
   ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
 
-  // Castle
+/*  // Castle
   const castleGY = H * 0.61;
   drawCastle(W*0.77, castleGY, 1.1);
+  */
 
   // Trees (behind terrain — draw before terrain fill)
   treePositions.forEach(t => drawTree(t.x, t.size));
 
-  // Terrain dirt fill
-  ctx.fillStyle = '#7a5520';
+  // Terrain grass fill
+  ctx.fillStyle = '#92b030';
   ctx.beginPath(); ctx.moveTo(0, H);
   terrainPoints.forEach(p => ctx.lineTo(p.x, p.y));
   ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
