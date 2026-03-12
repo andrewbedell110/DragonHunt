@@ -444,7 +444,7 @@ function drawEnvironment() {
   treePositions.forEach(t => drawTree(t.x, t.size));
 
   // Terrain grass fill
-  ctx.fillStyle = '#92b030';
+  ctx.fillStyle = '#639e4a';
   ctx.beginPath(); ctx.moveTo(0, H);
   terrainPoints.forEach(p => ctx.lineTo(p.x, p.y));
   ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
