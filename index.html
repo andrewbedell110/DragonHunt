@@ -92,7 +92,7 @@ document.addEventListener('mousemove', e => {
 // ── HARPOONS ─────────────────────────────────────────────────────────────────
 const harpoons = [];
 let hits = 0, eatCount = 0;
-const GRAVITY = 0.17;
+const GRAVITY = 0.08;
 
 class Harpoon {
   constructor(x, y, vx, vy) {
@@ -172,7 +172,7 @@ const figures = [];
 class StickFigure {
   constructor(fromEdge = false) {
     this.size = 15 + Math.random() * 5;
-    const tunicHues = [20, 38, 110, 190, 340];
+    const tunicHues = [20, 38, 110, 190, 190];
     const h = tunicHues[Math.floor(Math.random() * tunicHues.length)];
     this.tunicColor = `hsl(${h},55%,42%)`;
     this.skinColor = `hsl(${28 + Math.random()*15},65%,${62 + Math.random()*12}%)`;
@@ -212,7 +212,7 @@ class StickFigure {
 
   throw() {
     // Physics: launch upward with enough vy to reach 90% of screen height above feet
-    const maxH = H * 0.9;
+    const maxH = H * 0.5;
     const launchVy = -Math.sqrt(2 * GRAVITY * maxH);
     // Time to reach dragon's altitude
     const dy = (this.gy - this.size) - dragon.y;
