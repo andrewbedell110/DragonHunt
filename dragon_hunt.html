@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dragon Hunt</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #6ab0e8;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    cursor: none;
+    font-family: 'Georgia', serif;
+  }
+  canvas { display: block; }
+  #score {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #3b1a00;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    opacity: 0.85;
+    pointer-events: none;
+    background: rgba(255,220,140,0.75);
+    padding: 4px 16px;
+    border-radius: 3px;
+    border: 1px solid rgba(100,60,0,0.3);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="score">Hits: <span id="hitCount">0</span> &nbsp;|&nbsp; Eaten: <span id="eatCount">0</span></div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W = canvas.width = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+
+window.addEventListener('resize', () => {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  buildTerrain();
+});
+
+// ── TERRAIN ──────────────────────────────────────────────────────────────────
+let terrainPoints = [];
+
+function buildTerrain() {
+  terrainPoints = [];
+  const steps = Math.ceil(W / 3) + 2;
+  for (let i = 0; i <= steps; i++) {
+    const x = (i / steps) * W;
+    const hillX = W * 0.42;
+    const hillW = W * 0.22;
+    const hillH = H * 0.13;
+    const hill = hillH * Math.exp(-0.5 * Math.pow((x - hillX) / hillW, 2));
+    const ripple = Math.sin(x * 0.009) * H * 0.01 + Math.sin(x * 0.022) * H * 0.005;
+    terrainPoints.push({ x, y: H * 0.81 - hill + ripple });
+  }
+}
+buildTerrain();
+
+function groundY(x) {
+  const raw = (x / W) * (terrainPoints.length - 1);
+  const idx = Math.min(Math.floor(raw), terrainPoints.length - 2);
+  const t = raw - idx;
+  const p0 = terrainPoints[idx], p1 = terrainPoints[idx + 1];
+  if (!p0 || !p1) return H * 0.81;
+  return p0.y + t * (p1.y - p0.y);
+}
+
+function groundSlope(x) {
+  const dx = 3;
+  return Math.atan2(groundY(x + dx) - groundY(x - dx), dx * 2);
+}
+
+// ── DRAGON ────────────────────────────────────────────────────────────────────
+const dragon = { x: W / 2, y: H / 3, px: W / 2, py: H / 3, vx: 0, vy: 0, _lastAngle: 0 };
+document.addEventListener('mousemove', e => {
+  dragon.px = dragon.x; dragon.py = dragon.y;
+  dragon.x = e.clientX; dragon.y = e.clientY;
+  dragon.vx = dragon.x - dragon.px;
+  dragon.vy = dragon.y - dragon.py;
+});
+
+// ── HARPOONS ─────────────────────────────────────────────────────────────────
+const harpoons = [];
+let hits = 0, eatCount = 0;
+const GRAVITY = 0.17;
+
+class Harpoon {
+  constructor(x, y, vx, vy) {
+    this.x = x; this.y = y;
+    this.vx = vx; this.vy = vy;
+    this.dead = false;
+  }
+  update() {
+    this.vy += GRAVITY;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.angle = Math.atan2(this.vy, this.vx);
+
+    // Hit dragon
+    if (Math.hypot(dragon.x - this.x, dragon.y - this.y) < 24) {
+      this.dead = true;
+      hits++;
+      document.getElementById('hitCount').textContent = hits;
+      spawnParticles(this.x, this.y, '#cc2200', '#ffaa33', 18);
+      return;
+    }
+    // Hit ground — check if it kills a figure
+    if (this.y >= groundY(this.x)) {
+      for (const f of figures) {
+        if (!f.dead && Math.abs(f.x - this.x) < 20) f.die('harpoon');
+      }
+      this.dead = true;
+      return;
+    }
+    if (this.x < -40 || this.x > W + 40 || this.y > H + 40) this.dead = true;
+  }
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.angle);
+    ctx.strokeStyle = '#7a4a10';
+    ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-13, 0); ctx.lineTo(9, 0); ctx.stroke();
+    ctx.fillStyle = '#c0c0b0';
+    ctx.beginPath(); ctx.moveTo(9,0); ctx.lineTo(17,0); ctx.lineTo(13,-3); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(9,0); ctx.lineTo(17,0); ctx.lineTo(13,3); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#8B0000'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-10,0); ctx.lineTo(-15,-5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-10,0); ctx.lineTo(-15,5); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ── PARTICLES ─────────────────────────────────────────────────────────────────
+const particles = [];
+function spawnParticles(x, y, c1, c2, count = 14) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const spd = 1.5 + Math.random() * 4;
+    particles.push({ x, y, vx: Math.cos(a)*spd, vy: Math.sin(a)*spd - 1,
+      life: 1, decay: 0.025 + Math.random()*0.04, r: 1.5 + Math.random()*3,
+      color: Math.random() > 0.5 ? c1 : c2 });
+  }
+}
+
+// ── RESPAWN QUEUE ─────────────────────────────────────────────────────────────
+const respawnQueue = [];
+function scheduleRespawn() { respawnQueue.push(Date.now() + 30000); }
+function checkRespawns() {
+  const now = Date.now();
+  for (let i = respawnQueue.length - 1; i >= 0; i--) {
+    if (now >= respawnQueue[i]) {
+      respawnQueue.splice(i, 1);
+      figures.push(new StickFigure(true));
+    }
+  }
+}
+
+// ── STICK FIGURES ─────────────────────────────────────────────────────────────
+const figures = [];
+
+class StickFigure {
+  constructor(fromEdge = false) {
+    this.size = 15 + Math.random() * 5;
+    const tunicHues = [20, 38, 110, 190, 340];
+    const h = tunicHues[Math.floor(Math.random() * tunicHues.length)];
+    this.tunicColor = `hsl(${h},55%,42%)`;
+    this.skinColor = `hsl(${28 + Math.random()*15},65%,${62 + Math.random()*12}%)`;
+    this.walkSpeed = 0.55 + Math.random() * 0.65;
+    this.dir = Math.random() > 0.5 ? 1 : -1;
+    this.legPhase = Math.random() * Math.PI * 2;
+    this.armRaise = 0;
+    this.state = 'wander';
+    this.stateTimer = 0;
+    this.aimDuration = 65 + Math.random() * 60;
+    this.cooldown = 0;
+    this.dead = false;
+    this.deathTimer = 0;
+    this.deathType = null;
+
+    if (fromEdge) {
+      this.dir = Math.random() > 0.5 ? 1 : -1;
+      this.x = this.dir > 0 ? -10 : W + 10;
+    } else {
+      this.x = 80 + Math.random() * (W - 160);
+    }
+    this.y = groundY(this.x);
+  }
+
+  get gy() { return groundY(this.x); }
+
+  die(type) {
+    if (this.dead) return;
+    this.dead = true;
+    this.deathType = type;
+    this.deathTimer = 0;
+    spawnParticles(this.x, this.gy - this.size * 0.5, '#cc3300', '#ffcc44', 12);
+    scheduleRespawn();
+    eatCount++;
+    document.getElementById('eatCount').textContent = eatCount;
+  }
+
+  throw() {
+    // Physics: launch upward with enough vy to reach 90% of screen height above feet
+    const maxH = H * 0.9;
+    const launchVy = -Math.sqrt(2 * GRAVITY * maxH);
+    // Time to reach dragon's altitude
+    const dy = (this.gy - this.size) - dragon.y;
+    const a2 = 0.5 * GRAVITY, b2 = launchVy, c2 = dy;
+    const disc = b2*b2 - 4*a2*c2;
+    let tFlight = 70;
+    if (disc >= 0) {
+      const t1 = (-b2 - Math.sqrt(disc)) / (2*a2);
+      const t2 = (-b2 + Math.sqrt(disc)) / (2*a2);
+      tFlight = t1 > 0 ? t1 : (t2 > 0 ? t2 : 70);
+    }
+    const targetX = dragon.x + dragon.vx * tFlight * 0.55;
+    const launchVx = (targetX - this.x) / tFlight;
+
+    const handX = this.x + this.dir * this.size * 0.85;
+    const handY = this.gy - this.size * 1.1;
+    harpoons.push(new Harpoon(handX, handY, launchVx, launchVy));
+  }
+
+  update() {
+    if (this.dead) { this.deathTimer++; return; }
+    this.stateTimer++;
+    this.y = this.gy;
+
+    const dx = dragon.x - this.x;
+    const dy = dragon.y - this.gy;
+    const dist = Math.hypot(dx, dy);
+
+    // Eaten
+    if (dist < 46) { this.die('eaten'); return; }
+
+    const panicking = dist < 210 && dragon.y > this.gy - H * 0.4;
+
+    if (panicking && this.state !== 'aim') {
+      this.state = 'wander';
+      this.dir = dx > 0 ? -1 : 1;
+      this.x += this.dir * this.walkSpeed * 2.4;
+      this.legPhase += 0.24;
+      this.armRaise = Math.max(0, this.armRaise - 0.06);
+    } else if (this.state === 'wander') {
+      this.x += this.dir * this.walkSpeed;
+      this.legPhase += 0.13;
+      this.armRaise = Math.max(0, this.armRaise - 0.04);
+      if (this.x < 15) { this.x = 15; this.dir = 1; }
+      if (this.x > W - 15) { this.x = W - 15; this.dir = -1; }
+      if (Math.random() < 0.004) this.dir *= -1;
+      if (this.cooldown <= 0 && Math.random() < 0.007) {
+        this.state = 'aim'; this.stateTimer = 0;
+      }
+    } else if (this.state === 'aim') {
+      this.armRaise = Math.min(1, this.stateTimer / 32);
+      this.dir = dx > 0 ? 1 : -1;
+      if (this.stateTimer >= this.aimDuration) {
+        this.throw();
+        this.state = 'cooldown';
+        this.cooldown = 100 + Math.random() * 80;
+        this.stateTimer = 0;
+        this.aimDuration = 65 + Math.random() * 60;
+      }
+    } else if (this.state === 'cooldown') {
+      this.cooldown--;
+      this.armRaise = Math.max(0, this.armRaise - 0.03);
+      this.x += this.dir * this.walkSpeed * 0.35;
+      this.legPhase += 0.07;
+      if (this.x < 15) { this.x = 15; this.dir = 1; }
+      if (this.x > W - 15) { this.x = W - 15; this.dir = -1; }
+      if (this.cooldown <= 0) { this.state = 'wander'; this.stateTimer = 0; }
+    }
+  }
+
+  draw() {
+    if (this.dead) {
+      if (this.deathType === 'eaten') return;
+      if (this.deathTimer > 45) return;
+      ctx.globalAlpha = 1 - this.deathTimer / 45;
+      this._drawBody(true);
+      ctx.globalAlpha = 1;
+      return;
+    }
+    this._drawBody(false);
+  }
+
+  _drawBody(slumped) {
+    const s = this.size;
+    const gy = groundY(this.x);
+    ctx.save();
+    ctx.translate(this.x, gy);
+    const slope = groundSlope(this.x);
+    ctx.rotate(slumped ? slope + 1.0 : slope);
+
+    const flip = this.dir;
+    ctx.lineCap = 'round';
+
+    // Legs
+    const moving = this.state === 'wander' || (this.state === 'cooldown' && this.cooldown > 20);
+    const swing = moving ? Math.sin(this.legPhase) * 0.42 : 0;
+    ctx.strokeStyle = '#3a2000'; ctx.lineWidth = 2.5;
+    // back leg
+    ctx.beginPath(); ctx.moveTo(0, -s*0.05); ctx.lineTo(flip*s*0.32*(1-swing), s*0.72); ctx.stroke();
+    // Tunic
+    ctx.fillStyle = this.tunicColor;
+    ctx.beginPath();
+    ctx.moveTo(-s*0.38, -s*0.12); ctx.lineTo(s*0.38, -s*0.12);
+    ctx.lineTo(s*0.32, s*0.32); ctx.lineTo(-s*0.32, s*0.32); ctx.closePath(); ctx.fill();
+    // front leg
+    ctx.strokeStyle = '#3a2000';
+    ctx.beginPath(); ctx.moveTo(0, -s*0.05); ctx.lineTo(-flip*s*0.32*(1+swing*0.5), s*0.72); ctx.stroke();
+
+    // Torso
+    ctx.strokeStyle = this.tunicColor; ctx.lineWidth = s * 0.5;
+    ctx.beginPath(); ctx.moveTo(0, -s*1.05); ctx.lineTo(0, s*0.0); ctx.stroke();
+
+    // Throw arm (raised)
+    const throwAngle = -Math.PI*0.5 - this.armRaise * Math.PI * 0.52;
+    ctx.strokeStyle = this.skinColor; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(flip*s*0.1, -s*0.82);
+    ctx.lineTo(flip*s*0.1 + flip*Math.cos(throwAngle + (flip<0 ? Math.PI : 0))*s*0.78,
+               -s*0.82 + Math.sin(throwAngle)*s*0.78);
+    ctx.stroke();
+
+    // Rest arm
+    ctx.beginPath();
+    ctx.moveTo(-flip*s*0.1, -s*0.82);
+    ctx.lineTo(-flip*s*0.48, -s*0.3);
+    ctx.stroke();
+
+    // Head
+    ctx.fillStyle = this.skinColor;
+    ctx.beginPath(); ctx.arc(0, -s*1.32, s*0.24, 0, Math.PI*2); ctx.fill();
+
+    // Helmet
+    ctx.fillStyle = '#909090';
+    ctx.beginPath(); ctx.arc(0, -s*1.32, s*0.25, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#7a7a7a';
+    ctx.fillRect(-s*0.27, -s*1.32, s*0.54, s*0.08);
+
+    // Eye
+    ctx.fillStyle = '#1a0800';
+    ctx.beginPath(); ctx.arc(flip*s*0.1, -s*1.29, s*0.05, 0, Math.PI*2); ctx.fill();
+
+    // Panic mouth
+    if (Math.hypot(dragon.x - this.x, dragon.y - groundY(this.x)) < 210) {
+      ctx.strokeStyle = '#1a0800'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(flip*s*0.07, -s*1.19, s*0.07, 0, Math.PI); ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+}
+
+for (let i = 0; i < 5; i++) figures.push(new StickFigure());
+
+// ── ENVIRONMENT ───────────────────────────────────────────────────────────────
+const clouds = Array.from({length: 8}, () => ({
+  x: Math.random() * W, y: H*0.05 + Math.random()*H*0.18,
+  w: 70 + Math.random()*130, speed: 0.1 + Math.random()*0.2
+}));
+
+const treePositions = Array.from({length: 16}, () => {
+  const tx = 30 + Math.random()*(W-60);
+  return { x: tx, size: 26 + Math.random()*14 };
+});
+
+function drawTree(x, size) {
+  const gy = groundY(x);
+  ctx.strokeStyle = '#5a3412'; ctx.lineWidth = size*0.17; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x, gy - size*0.55); ctx.stroke();
+  const layers = ['#2a6a22','#368a2e','#42aa3a'];
+  for (let i = 0; i < 3; i++) {
+    ctx.fillStyle = layers[i];
+    ctx.beginPath();
+    ctx.moveTo(x, gy - size*(0.48 + i*0.3));
+    ctx.lineTo(x - size*(0.4-i*0.06), gy - size*(0.18 + i*0.3));
+    ctx.lineTo(x + size*(0.4-i*0.06), gy - size*(0.18 + i*0.3));
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+function drawCastle(cx, cy, sc) {
+  ctx.fillStyle = '#8a7a9a';
+  ctx.fillRect(cx, cy-62*sc, 42*sc, 62*sc);
+  for (let i=0;i<4;i++) ctx.fillRect(cx+i*11*sc, cy-74*sc, 7*sc, 13*sc);
+  ctx.fillRect(cx-15*sc, cy-52*sc, 17*sc, 52*sc);
+  for (let i=0;i<2;i++) ctx.fillRect(cx+(-17+i*8)*sc, cy-62*sc, 6*sc, 11*sc);
+  ctx.fillRect(cx+44*sc, cy-52*sc, 17*sc, 52*sc);
+  for (let i=0;i<2;i++) ctx.fillRect(cx+(42+i*8)*sc, cy-62*sc, 6*sc, 11*sc);
+  // Window
+  ctx.fillStyle = '#3a2a5a';
+  ctx.fillRect(cx+16*sc, cy-45*sc, 10*sc, 14*sc);
+}
+
+function drawEnvironment() {
+  // Sky
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#3a80cc'); sky.addColorStop(0.55, '#78b8ee'); sky.addColorStop(1, '#aad0f0');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+
+  // Sun
+  ctx.fillStyle = '#fff8a0';
+  ctx.shadowColor = '#ffe060'; ctx.shadowBlur = 45;
+  ctx.beginPath(); ctx.arc(W*0.11, H*0.09, 36, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Clouds
+  clouds.forEach(cl => {
+    cl.x += cl.speed; if (cl.x - cl.w > W) cl.x = -cl.w;
+    ctx.fillStyle = 'rgba(255,255,255,0.86)';
+    ctx.beginPath();
+    ctx.ellipse(cl.x, cl.y, cl.w*0.5, cl.w*0.2, 0, 0, Math.PI*2);
+    ctx.ellipse(cl.x - cl.w*0.2, cl.y+4, cl.w*0.28, cl.w*0.15, 0, 0, Math.PI*2);
+    ctx.ellipse(cl.x + cl.w*0.22, cl.y+3, cl.w*0.26, cl.w*0.13, 0, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // Distant hills
+  ctx.fillStyle = '#7aaa6a';
+  ctx.beginPath(); ctx.moveTo(0, H);
+  for (let x = 0; x <= W; x += 35) {
+    const hy = H*0.6 - Math.sin(x*0.007+1)*H*0.065 - Math.sin(x*0.013)*H*0.035;
+    ctx.lineTo(x, hy);
+  }
+  ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+
+  // Castle
+  const castleGY = H * 0.61;
+  drawCastle(W*0.77, castleGY, 1.1);
+
+  // Trees (behind terrain — draw before terrain fill)
+  treePositions.forEach(t => drawTree(t.x, t.size));
+
+  // Terrain dirt fill
+  ctx.fillStyle = '#7a5520';
+  ctx.beginPath(); ctx.moveTo(0, H);
+  terrainPoints.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+
+  // Grass top
+  ctx.strokeStyle = '#3a8a22'; ctx.lineWidth = 5; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  terrainPoints.forEach((p, i) => i===0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+  ctx.stroke();
+
+  // Highlight
+  ctx.strokeStyle = '#58aa30'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  terrainPoints.forEach((p, i) => i===0 ? ctx.moveTo(p.x, p.y-2) : ctx.lineTo(p.x, p.y-2));
+  ctx.stroke();
+
+  // Grass tufts
+  ctx.strokeStyle = '#2d7a18'; ctx.lineWidth = 1.2; ctx.lineCap = 'round';
+  for (let x = 6; x < W; x += 11 + Math.sin(x*0.3)*3) {
+    const gy = groundY(x);
+    const sl = groundSlope(x);
+    ctx.save(); ctx.translate(x, gy); ctx.rotate(sl);
+    ctx.beginPath(); ctx.moveTo(-1, 0); ctx.lineTo(-3, -5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(3, 0); ctx.lineTo(5, -6); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ── DRAGON ────────────────────────────────────────────────────────────────────
+function drawDragon(x, y, vx, vy) {
+  const speed = Math.hypot(vx, vy);
+  const angle = speed > 0.5 ? Math.atan2(vy, vx) : dragon._lastAngle;
+  dragon._lastAngle = angle;
+
+  const t = Date.now();
+  const wingFlap = Math.sin(t * 0.013) * 0.5;
+  const tailWag = Math.sin(t * 0.009) * 11;
+  const s = 24;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  // ── Tail ──
+  ctx.strokeStyle = '#6a1000'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-s*1.4, 0);
+  ctx.quadraticCurveTo(-s*2.3, tailWag*0.7, -s*3.4, tailWag);
+  ctx.stroke();
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(-s*3.4, tailWag);
+  ctx.quadraticCurveTo(-s*4.0, tailWag*0.5, -s*4.2, tailWag*1.5);
+  ctx.stroke();
+  // Tail spike
+  ctx.fillStyle = '#4a0a00';
+  ctx.beginPath();
+  ctx.moveTo(-s*3.9, tailWag*1.1);
+  ctx.lineTo(-s*4.6, tailWag*1.6);
+  ctx.lineTo(-s*3.7, tailWag*1.9);
+  ctx.closePath(); ctx.fill();
+
+  // ── Wings (large bat-like) ──
+  const wSpan = s * (3.2 + wingFlap);
+  // Wing up
+  const wGradU = ctx.createLinearGradient(0, -wSpan, 0, 0);
+  wGradU.addColorStop(0, 'rgba(110,8,0,0.88)'); wGradU.addColorStop(1, 'rgba(190,35,0,0.55)');
+  ctx.fillStyle = wGradU;
+  ctx.beginPath();
+  ctx.moveTo(-s*0.7, -s*0.28);
+  ctx.quadraticCurveTo(-s*1.5, -wSpan*0.55, -s*0.15, -wSpan);
+  ctx.quadraticCurveTo(s*0.9, -wSpan*0.65, s*0.5, -s*0.18);
+  ctx.closePath(); ctx.fill();
+  // Wing fingers up
+  ctx.strokeStyle = 'rgba(70,4,0,0.65)'; ctx.lineWidth = 1.5;
+  for (let i = 1; i <= 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-s*0.4, -s*0.22);
+    ctx.lineTo(-s*0.18 + (i/4)*s*0.18, -wSpan*(0.4 + i*0.18));
+    ctx.stroke();
+  }
+  // Wing down
+  const wGradD = ctx.createLinearGradient(0, 0, 0, wSpan);
+  wGradD.addColorStop(0, 'rgba(190,35,0,0.55)'); wGradD.addColorStop(1, 'rgba(110,8,0,0.88)');
+  ctx.fillStyle = wGradD;
+  ctx.beginPath();
+  ctx.moveTo(-s*0.7, s*0.28);
+  ctx.quadraticCurveTo(-s*1.5, wSpan*0.55, -s*0.15, wSpan);
+  ctx.quadraticCurveTo(s*0.9, wSpan*0.65, s*0.5, s*0.18);
+  ctx.closePath(); ctx.fill();
+  for (let i = 1; i <= 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-s*0.4, s*0.22);
+    ctx.lineTo(-s*0.18 + (i/4)*s*0.18, wSpan*(0.4 + i*0.18));
+    ctx.stroke();
+  }
+
+  // ── Body ──
+  const bg = ctx.createRadialGradient(-s*0.2, -s*0.1, s*0.08, 0, 0, s*1.15);
+  bg.addColorStop(0, '#ff6040'); bg.addColorStop(0.55, '#cc2000'); bg.addColorStop(1, '#720e00');
+  ctx.fillStyle = bg;
+  ctx.beginPath(); ctx.ellipse(0, 0, s*1.15, s*0.64, 0, 0, Math.PI*2); ctx.fill();
+
+  // Underbelly
+  ctx.fillStyle = 'rgba(255,175,95,0.28)';
+  ctx.beginPath(); ctx.ellipse(s*0.1, s*0.17, s*0.7, s*0.3, 0, 0, Math.PI*2); ctx.fill();
+
+  // Back spines
+  ctx.fillStyle = '#6a0d00';
+  for (let i = 0; i < 6; i++) {
+    const bx = -s*0.85 + i*s*0.34, bh = s*(0.3 - i*0.025);
+    ctx.beginPath();
+    ctx.moveTo(bx-s*0.06, -s*0.46); ctx.lineTo(bx, -s*0.46-bh); ctx.lineTo(bx+s*0.06, -s*0.46);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // ── Neck ──
+  ctx.fillStyle = '#bb1e00';
+  ctx.beginPath();
+  ctx.moveTo(s*0.65, -s*0.36);
+  ctx.quadraticCurveTo(s*1.15, -s*0.52, s*1.38, -s*0.14);
+  ctx.quadraticCurveTo(s*1.16, s*0.12, s*0.82, s*0.22);
+  ctx.quadraticCurveTo(s*0.52, s*0.3, s*0.52, s*0.1);
+  ctx.quadraticCurveTo(s*0.7, -s*0.08, s*0.65, -s*0.36);
+  ctx.fill();
+
+  // ── Head ──
+  ctx.fillStyle = '#d8280a';
+  ctx.beginPath(); ctx.ellipse(s*1.82, -s*0.1, s*0.62, s*0.44, 0.14, 0, Math.PI*2); ctx.fill();
+  // Brow ridge
+  ctx.fillStyle = '#a01800';
+  ctx.beginPath(); ctx.ellipse(s*1.86, -s*0.4, s*0.44, s*0.14, 0.18, 0, Math.PI*2); ctx.fill();
+  // Horn
+  ctx.fillStyle = '#4a0c00';
+  ctx.beginPath();
+  ctx.moveTo(s*1.72, -s*0.5); ctx.lineTo(s*1.6, -s*0.92); ctx.lineTo(s*1.84, -s*0.47);
+  ctx.closePath(); ctx.fill();
+  // Small horn 2
+  ctx.beginPath();
+  ctx.moveTo(s*1.9, -s*0.5); ctx.lineTo(s*1.84, -s*0.74); ctx.lineTo(s*2.0, -s*0.47);
+  ctx.closePath(); ctx.fill();
+
+  // Eye — yellow slit
+  ctx.fillStyle = '#ffdc00';
+  ctx.beginPath(); ctx.ellipse(s*1.96, -s*0.18, s*0.14, s*0.11, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.ellipse(s*1.97, -s*0.18, s*0.055, s*0.1, 0.08, 0, Math.PI*2); ctx.fill();
+
+  // Nostril
+  ctx.fillStyle = '#6a0d00';
+  ctx.beginPath(); ctx.arc(s*2.28, -s*0.06, s*0.055, 0, Math.PI*2); ctx.fill();
+
+  // Jaw
+  ctx.fillStyle = '#aa1600';
+  ctx.beginPath();
+  ctx.moveTo(s*1.56, s*0.12); ctx.lineTo(s*2.38, s*0.1);
+  ctx.lineTo(s*2.36, s*0.25); ctx.lineTo(s*1.56, s*0.25); ctx.closePath(); ctx.fill();
+  // Teeth
+  ctx.fillStyle = '#eeeed8';
+  for (let i = 0; i < 5; i++) {
+    const tx = s*1.64 + i*s*0.155;
+    ctx.beginPath();
+    ctx.moveTo(tx, s*0.12); ctx.lineTo(tx+s*0.065, s*0.22); ctx.lineTo(tx+s*0.13, s*0.12);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // Subtle aura
+  ctx.shadowColor = 'rgba(230,60,0,0.35)';
+  ctx.shadowBlur = 16;
+  ctx.strokeStyle = 'rgba(255,70,0,0.12)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.ellipse(0, 0, s*1.2, s*0.68, 0, 0, Math.PI*2); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.restore();
+}
+
+// ── RESPAWN TIMER HUD ─────────────────────────────────────────────────────────
+function drawTimers() {
+  const now = Date.now();
+  respawnQueue.forEach((t, i) => {
+    const secs = Math.ceil((t - now) / 1000);
+    ctx.fillStyle = 'rgba(60,30,0,0.65)';
+    ctx.font = '11px Georgia';
+    ctx.fillText(`Villager respawns in ${secs}s`, 12, H*0.81 - 22 - i*15);
+  });
+}
+
+// ── MAIN LOOP ─────────────────────────────────────────────────────────────────
+function loop() {
+  drawEnvironment();
+  checkRespawns();
+
+  // Particles
+  for (let i = particles.length-1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy; p.vy += 0.13;
+    p.life -= p.decay;
+    if (p.life <= 0) { particles.splice(i,1); continue; }
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Harpoons
+  for (let i = harpoons.length-1; i >= 0; i--) {
+    harpoons[i].update();
+    if (harpoons[i].dead) { harpoons.splice(i,1); continue; }
+    harpoons[i].draw();
+  }
+
+  // Prune dead figures
+  for (let i = figures.length-1; i >= 0; i--) {
+    if (figures[i].dead && figures[i].deathTimer > 55) figures.splice(i,1);
+  }
+
+  figures.forEach(f => { f.update(); f.draw(); });
+  drawTimers();
+  drawDragon(dragon.x, dragon.y, dragon.vx, dragon.vy);
+
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
