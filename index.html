@@ -81,12 +81,10 @@ function groundSlope(x) {
 }
 
 // ── DRAGON ────────────────────────────────────────────────────────────────────
-const dragon = { x: W / 2, y: H / 3, px: W / 2, py: H / 3, vx: 0, vy: 0, _lastAngle: 0 };
+const dragon = { x: W/2, y: H/3, tx: W/2, ty: H/3, vx: 0, vy: 0, _lastAngle: 0 };
 document.addEventListener('mousemove', e => {
-  dragon.px = dragon.x; dragon.py = dragon.y;
-  dragon.x = e.clientX; dragon.y = e.clientY;
-  dragon.vx = dragon.x - dragon.px;
-  dragon.vy = dragon.y - dragon.py;
+  dragon.tx = e.clientX;
+  dragon.ty = e.clientY;
 });
 
 // ── HARPOONS ─────────────────────────────────────────────────────────────────
@@ -635,6 +633,11 @@ function drawTimers() {
 
 // ── MAIN LOOP ─────────────────────────────────────────────────────────────────
 function loop() {
+ const ease = 0.08;
+dragon.vx = (dragon.tx - dragon.x) * ease;
+dragon.vy = (dragon.ty - dragon.y) * ease;
+dragon.x += dragon.vx;
+dragon.y += dragon.vy;
   drawEnvironment();
   checkRespawns();
 
